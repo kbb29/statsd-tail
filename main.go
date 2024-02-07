@@ -91,10 +91,15 @@ func printMetricForCharDevice(data *dogstatsd.Metric) {
 }
 
 func main() {
-	ln, err := net.ListenUDP("udp", &net.UDPAddr{
-		Port: 8125,
-		IP:   net.ParseIP("127.0.0.1"),
-	})
+        port := flag.Int("port", 8125, "the port number to listen on")
+        host := flag.String("host", "127.0.0.1", "the hostname to listen on")
+        flag.Parse()
+
+        fmt.Fprintf(os.Stderr, "listening on %s:%d\n", *host, *port)
+        ln, err := net.ListenUDP("udp", &net.UDPAddr{
+                Port: *port,
+                IP:   net.ParseIP(*host),
+        })
 
 	if err != nil {
 		panic(err)
