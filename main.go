@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+        "flag"
 
 	"github.com/narqo/go-dogstatsd-parser"
 )
