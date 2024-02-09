@@ -1,12 +1,13 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"os"
 	"sort"
 	"strings"
-        "flag"
+	"time"
 
 	"github.com/narqo/go-dogstatsd-parser"
 )
@@ -91,25 +92,14 @@ func printMetricForCharDevice(data *dogstatsd.Metric) {
 	}
 }
 
-func main() {
-        port := flag.Int("port", 8125, "the port number to listen on")
-        host := flag.String("host", "127.0.0.1", "the hostname to listen on")
-        flag.Parse()
-
-        fmt.Fprintf(os.Stderr, "listening on %s:%d\n", *host, *port)
-        ln, err := net.ListenUDP("udp", &net.UDPAddr{
-                Port: *port,
-                IP:   net.ParseIP(*host),
-        })
+func getMetricsFromUDP(host string, port int, metricChan chan<- *dogstatsd.Metric) {
+	ln, err := net.ListenUDP("udp", &net.UDPAddr{
+		Port: port,
+		IP:   net.ParseIP(host),
+	})
 
 	if err != nil {
 		panic(err)
-	}
-
-	printer := printMetricForTerminal
-
-	if stdoutIsTerminal() == false {
-		printer = printMetricForCharDevice
 	}
 
 	data := make([]byte, 65535)
@@ -128,8 +118,84 @@ func main() {
 			if err != nil {
 				fmt.Printf("ERR: %s -> %+v\n", line, err)
 			} else {
-				printer(metrics[i])
+				metricChan <- metrics[i]
 			}
 		}
 	}
+}
+
+func addMetricToMap(metricMap map[string]dogstatsd.Metric, metric *dogstatsd.Metric) {
+	key := fmt.Sprintf("%s-%s", metric.Name, metric.Type)
+	switch metric.Type {
+	case "g":
+		metricMap[key] = *metric
+	case "ts":
+		metricMap[key] = *metric
+	case "c":
+		val, ok := metricMap[key]
+		if ok {
+			val.Rate += metric.Rate
+		} else {
+			metricMap[key] = *metric
+		}
+	default:
+		fmt.Printf("ignoring metric of type %s\n", metric.Type)
+	}
+}
+
+func main() {
+	port := flag.Int("port", 8125, "the port number to listen on")
+	host := flag.String("host", "127.0.0.1", "the hostname to listen on")
+	displayInterval := flag.Uint("interval", 30, "the interval in seconds at which metrics should be displayed")
+	flag.Parse()
+
+	fmt.Fprintf(os.Stderr, "listening on %s:%d\n", *host, *port)
+
+	printer := printMetricForTerminal
+
+	if !stdoutIsTerminal() {
+		printer = printMetricForCharDevice
+	}
+
+	metricChan := make(chan *dogstatsd.Metric)
+	tickerChan := make(<-chan time.Time, 0)
+	if *displayInterval > 0 {
+		ticker := time.NewTicker(time.Second * time.Duration(*displayInterval))
+		tickerChan = ticker.C
+	}
+
+	metricMapInterval := make(map[string]dogstatsd.Metric)
+	metricMapTotal := make(map[string]dogstatsd.Metric)
+
+	go getMetricsFromUDP(*host, *port, metricChan)
+
+	for {
+		select {
+		case m := <-metricChan:
+			if *displayInterval == 0 {
+				printer(m)
+			} else {
+				addMetricToMap(metricMapInterval, m)
+				addMetricToMap(metricMapTotal, m)
+			}
+
+		case t := <-tickerChan:
+			//don't bother printing anything if nothing was produced in the last displayInterval
+			if len(metricMapInterval) == 0 {
+				continue
+			}
+			fmt.Println("Dumping Metrics at", t)
+			fmt.Printf("Last %d seconds\n", *displayInterval)
+			for _, metric := range metricMapInterval {
+				printer(&metric)
+			}
+			fmt.Println("Total")
+			for _, metric := range metricMapTotal {
+				printer(&metric)
+			}
+			//reset the metric Map for this interval
+			metricMapInterval = make(map[string]dogstatsd.Metric)
+		}
+	}
+
 }
