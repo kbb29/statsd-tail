@@ -124,23 +124,27 @@ func getMetricsFromUDP(host string, port int, metricChan chan<- *dogstatsd.Metri
 	}
 }
 
-func addMetricToMap(metricMap map[string]dogstatsd.Metric, metric *dogstatsd.Metric) {
+func addMetricToMap(metricMap map[string]*dogstatsd.Metric, metric *dogstatsd.Metric) {
 	key := fmt.Sprintf("%s-%s", metric.Name, metric.Type)
 	switch metric.Type {
 	case "g":
-		metricMap[key] = *metric
+		metricMap[key] = metric
 	case "ts":
-		metricMap[key] = *metric
+		metricMap[key] = metric
 	case "c":
-		val, ok := metricMap[key]
+		existingEntry, ok := metricMap[key]
 		if ok {
-			val.Rate += metric.Rate
+			existingEntry.Value = metric.Value.(int64) + existingEntry.Value.(int64)
 		} else {
-			metricMap[key] = *metric
+			metricMap[key] = metric
 		}
 	default:
 		fmt.Printf("ignoring metric of type %s\n", metric.Type)
 	}
+}
+
+func makeMetricsMap() map[string]*dogstatsd.Metric {
+	return make(map[string]*dogstatsd.Metric)
 }
 
 func main() {
@@ -158,14 +162,14 @@ func main() {
 	}
 
 	metricChan := make(chan *dogstatsd.Metric)
-	tickerChan := make(<-chan time.Time, 0)
+	tickerChan := make(<-chan time.Time)
 	if *displayInterval > 0 {
 		ticker := time.NewTicker(time.Second * time.Duration(*displayInterval))
 		tickerChan = ticker.C
 	}
 
-	metricMapInterval := make(map[string]dogstatsd.Metric)
-	metricMapTotal := make(map[string]dogstatsd.Metric)
+	metricMapInterval := makeMetricsMap()
+	metricMapTotal := makeMetricsMap()
 
 	go getMetricsFromUDP(*host, *port, metricChan)
 
@@ -185,16 +189,16 @@ func main() {
 				continue
 			}
 			fmt.Println("Dumping Metrics at", t)
-			fmt.Printf("Last %d seconds\n", *displayInterval)
+			fmt.Printf("\nLast %d seconds\n", *displayInterval)
 			for _, metric := range metricMapInterval {
-				printer(&metric)
+				printer(metric)
 			}
-			fmt.Println("Total")
+			fmt.Println("\nTotal")
 			for _, metric := range metricMapTotal {
-				printer(&metric)
+				printer(metric)
 			}
 			//reset the metric Map for this interval
-			metricMapInterval = make(map[string]dogstatsd.Metric)
+			metricMapInterval = makeMetricsMap()
 		}
 	}
 
