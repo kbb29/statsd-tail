@@ -11,9 +11,12 @@ Listens for statsd (in Datadog's dialect) and pretty-prints it on the console.
 Getting it
 ----------
 
-Provided a working Go-setup, fetch the code with `go get
-github.com/msiebuhr/statsd-tail` and then `go install
-github.com/msiebuhr/statsd-tail`.
+Provided a working Go-setup, install the code with `go install
+github.com/kbb29/statsd-tail@latest`.
+
+you can specify the --host, --port to listen on
+you can specify the --interval at which you want metrics to be aggregated and displayed
+(set to 0 to dump the metrics as they arrive)
 
 License
 -------
