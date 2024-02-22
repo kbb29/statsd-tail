@@ -147,6 +147,17 @@ func makeMetricsMap() map[string]*dogstatsd.Metric {
 	return make(map[string]*dogstatsd.Metric)
 }
 
+func sortedKeys(m map[string]*dogstatsd.Metric) []string {
+	keys := make([]string, len(m))
+	i := 0
+	for k := range m {
+		keys[i] = k
+		i++
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	return keys
+}
+
 func main() {
 	port := flag.Int("port", 8125, "the port number to listen on")
 	host := flag.String("host", "127.0.0.1", "the hostname to listen on")
@@ -190,12 +201,12 @@ func main() {
 			}
 			fmt.Println("Dumping Metrics at", t)
 			fmt.Printf("\nLast %d seconds\n", *displayInterval)
-			for _, metric := range metricMapInterval {
-				printer(metric)
+			for _, name := range sortedKeys(metricMapInterval) {
+				printer(metricMapInterval[name])
 			}
 			fmt.Println("\nTotal")
-			for _, metric := range metricMapTotal {
-				printer(metric)
+			for _, name := range sortedKeys(metricMapTotal) {
+				printer(metricMapTotal[name])
 			}
 			//reset the metric Map for this interval
 			metricMapInterval = makeMetricsMap()
