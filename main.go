@@ -127,9 +127,7 @@ func getMetricsFromUDP(host string, port int, metricChan chan<- *dogstatsd.Metri
 func addMetricToMap(metricMap map[string]*dogstatsd.Metric, metric *dogstatsd.Metric) {
 	key := fmt.Sprintf("%s-%s", metric.Name, metric.Type)
 	switch metric.Type {
-	case "g":
-		metricMap[key] = metric
-	case "ts":
+	case "g", "ts", "ms":
 		metricMap[key] = metric
 	case "c":
 		existingEntry, ok := metricMap[key]
@@ -199,7 +197,7 @@ func main() {
 			if len(metricMapInterval) == 0 {
 				continue
 			}
-			fmt.Println("Dumping Metrics at", t)
+			fmt.Println("\n\nDumping Metrics at", t)
 			fmt.Printf("\nLast %d seconds\n", *displayInterval)
 			for _, name := range sortedKeys(metricMapInterval) {
 				printer(metricMapInterval[name])
