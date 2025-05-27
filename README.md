@@ -29,6 +29,12 @@ you can specify the --host, --port to listen on
 you can specify the --interval at which you want metrics to be aggregated and displayed
 (set to 0 to dump the metrics as they arrive)
 
+
+TODO
+----
+add test script using https://pkg.go.dev/github.com/smira/go-statsd to generate stats
+
+
 License
 -------
 
