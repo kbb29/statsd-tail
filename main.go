@@ -35,15 +35,19 @@ type MetricsMap struct {
 	gaugeMap map[string]*GaugeMetricSummary
 	timingMap map[string]*GaugeMetricSummary
 	startTime time.Time
-	nameMaxLen int
-	tagsMaxLen int
+	NameMaxLen int
+	TagsMaxLen int
 }
 
 func newMetricsMap(startTime time.Time) *MetricsMap {
+	return newMetricsMapWithMaxLengths(startTime, 0, 0)
+}
+
+func newMetricsMapWithMaxLengths(startTime time.Time, NameMaxLen int, TagsMaxLen int) *MetricsMap {
 	mm := new(MetricsMap)
 	mm.startTime = startTime
-	mm.nameMaxLen = 0
-	mm.tagsMaxLen = 0
+	mm.NameMaxLen = NameMaxLen
+	mm.TagsMaxLen = TagsMaxLen
 	mm.countMap = make(map[string]*CountMetricSummary)
 	mm.gaugeMap = make(map[string]*GaugeMetricSummary)
 	mm.timingMap = make(map[string]*GaugeMetricSummary)
@@ -54,7 +58,7 @@ func (mm MetricsMap) IsEmpty() bool {
 	return len(mm.countMap) == 0 && len(mm.gaugeMap) == 0 && len(mm.timingMap) == 0
 }
 
-func (mm MetricsMap) Print() {
+func (mm *MetricsMap) Print() { // this has to be a pointer receiver because we modify the metricsMap in PrintOneMetric()
 
 	if len(mm.countMap) > 0 {
 		for _, name := range slices.Sorted(maps.Keys(mm.countMap)) {
@@ -75,26 +79,27 @@ func (mm MetricsMap) Print() {
 
 
 func (mm *MetricsMap) AddMetric(metric *dogstatsd.Metric) {
-
+	var alreadyExists bool
+	var existingEntry PrintableMetricSummary
 	key := metric.Name
 	switch metric.Type {
 	case dogstatsd.Gauge:
-		existingEntry, ok := mm.gaugeMap[key]
-		if ok {
+		existingEntry, alreadyExists = mm.gaugeMap[key]
+		if alreadyExists {
 			existingEntry.AddValue(metric)
 		} else {
 			mm.gaugeMap[key] = newGaugeMetricSummary(metric)
 		}
 	case dogstatsd.Timer, "ts":
-		existingEntry, ok := mm.timingMap[key]
-		if ok {
+		existingEntry, alreadyExists = mm.timingMap[key]
+		if alreadyExists {
 			existingEntry.AddValue(metric)
 		} else {
 			mm.timingMap[key] = newGaugeMetricSummary(metric)
 		}
 	case dogstatsd.Counter:
-		existingEntry, ok := mm.countMap[key]
-		if ok {
+		existingEntry, alreadyExists = mm.countMap[key]
+		if alreadyExists {
 			existingEntry.AddValue(metric)
 		} else {
 			mm.countMap[key] = newCountMetricSummary(metric)
@@ -103,24 +108,27 @@ func (mm *MetricsMap) AddMetric(metric *dogstatsd.Metric) {
 		fmt.Printf("ignoring metric of type %s\n", metric.Type)
 		return
 	}
+
+	if !alreadyExists {
+		// Update widths
+		if len(metric.Name) > mm.NameMaxLen {
+			mm.NameMaxLen = len(metric.Name)
+		}
+		// TODO: Stringify tags uniformly
+		tags := tagString(metric.Tags)
+
+		if len(tags) > mm.TagsMaxLen {
+			mm.TagsMaxLen = len(tags)
+		}
+	}
 }
 
 func (mm *MetricsMap) PrintOneMetric(pms PrintableMetricSummary) {
 	data := pms.GetMetric()
 
-	// Update widths
-	if len(data.Name) > mm.nameMaxLen {
-		mm.nameMaxLen = len(data.Name)
-	}
-
-	// TODO: Stringify tags uniformly
 	tags := tagString(data.Tags)
 
-	if len(tags) > mm.tagsMaxLen {
-		mm.tagsMaxLen = len(tags)
-	}
-
-	fmtString := fmt.Sprintf("%%s\t%%-%ds\t%%.2f\t%%-%ds\t", mm.nameMaxLen, mm.tagsMaxLen)
+	fmtString := fmt.Sprintf("%%s\t%%-%ds\t%%.2f\t%%-%ds\t", mm.NameMaxLen, mm.TagsMaxLen)
 	fmt.Printf(fmtString, data.Type, data.Name, data.Rate, tags)
 
 	pms.PrintSummaryValues(time.Since(mm.startTime))
@@ -144,6 +152,8 @@ func newCountMetricSummary(m *dogstatsd.Metric) *CountMetricSummary {
 	cms := new(CountMetricSummary)
 	cms.m = m
 	cms.Sum = 0
+
+	cms.AddValue(m)
 
 	return cms
 }
@@ -176,6 +186,8 @@ func newGaugeMetricSummary(m *dogstatsd.Metric) *GaugeMetricSummary {
 	gms.Count = 0
 	gms.Last = 0
 
+	gms.AddValue(m)
+
 	return gms
 }
 
@@ -190,7 +202,7 @@ func (gms *GaugeMetricSummary) AddValue(m *dogstatsd.Metric) {
 }
 
 func (gms *GaugeMetricSummary) PrintSummaryValues(d time.Duration) {
-	fmt.Printf("%.4f (last)\t%.4f (avg)", gms.Last, gms.Sum / float64(gms.Count) )
+	fmt.Printf("%.4f (avg)\t%.4f (last)", gms.Sum / float64(gms.Count), gms.Last)
 }
 
 // Adapted from https://stackoverflow.com/q/43947363
@@ -356,7 +368,7 @@ func main() {
 			metricMapTotal.Print()
 
 			//reset the metric Map for this interval
-			metricMapInterval = newMetricsMap(time.Now())
+			metricMapInterval = newMetricsMapWithMaxLengths(time.Now(), metricMapTotal.NameMaxLen, metricMapTotal.TagsMaxLen)
 		}
 	}
 
